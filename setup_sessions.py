@@ -15,10 +15,14 @@ PLATFORMS = [
 async def save_session(platform: str, url: str, prompt: str):
     session_path = str(SESSIONS_DIR / platform)
     async with async_playwright() as p:
+        # Usar Chrome real para todas las plataformas en el setup
+        # Evita deteccion de bot durante el login manual
         context = await p.chromium.launch_persistent_context(
             session_path,
             headless=False,
-            args=["--start-maximized"],
+            channel="chrome",
+            ignore_default_args=["--enable-automation"],
+            args=["--start-maximized", "--disable-blink-features=AutomationControlled"],
         )
         page = await context.new_page()
         await page.goto(url)
