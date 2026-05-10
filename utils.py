@@ -5,6 +5,19 @@ from pathlib import Path
 import pytz
 from config import PENDING_DIR, FINALIZED_DIR, TIMEZONE
 
+MODE_FILE = Path(__file__).parent / "uploader-mode.json"
+
+
+def load_mode() -> str:
+    try:
+        return json.loads(MODE_FILE.read_text()).get("mode", "publicar")
+    except Exception:
+        return "publicar"
+
+
+def save_mode(mode: str):
+    MODE_FILE.write_text(json.dumps({"mode": mode}))
+
 ART_TZ = pytz.timezone(TIMEZONE)
 
 def get_pending_videos() -> list[Path]:

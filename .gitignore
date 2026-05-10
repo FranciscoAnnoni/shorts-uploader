@@ -6,3 +6,5 @@ __pycache__/
 debug_*.json
 *.log
 .DS_Store
+uploader-mode.json
+presets-custom.json

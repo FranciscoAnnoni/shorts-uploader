@@ -11,9 +11,9 @@ ART_TZ = pytz.timezone("America/Argentina/Buenos_Aires")
 
 async def main():
     video_path = input("Path al video de prueba: ").strip()
-    now = datetime.now(ART_TZ).replace(tzinfo=None)
-    schedule_dt = (now + timedelta(hours=2)).replace(minute=0, second=0, microsecond=0)
-    print(f"Programando para: {schedule_dt.strftime('%Y-%m-%d %H:%M')} ART")
+    now = datetime.now(ART_TZ)
+    schedule_dt = now  # publicar inmediatamente
+    print(f"Publicando ahora: {schedule_dt.strftime('%Y-%m-%d %H:%M')} ART")
 
     result = await upload(
         video_path=video_path,

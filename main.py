@@ -1,12 +1,12 @@
 import gradio as gr
 import asyncio
-from datetime import datetime, date
+from datetime import datetime, timedelta, date
 from pathlib import Path
 import pytz
 
 from config import DEFAULT_PUBLISH_HOUR, DEFAULT_PUBLISH_MINUTE, YT_CATEGORIES, YT_DEFAULT_CATEGORY
-from utils import get_pending_videos, build_caption, move_to_finalized, get_schedule_datetime
-from presets import get_today_preset, preset_labels, preset_by_label
+from utils import get_pending_videos, build_caption, move_to_finalized, get_schedule_datetime, load_mode, save_mode
+from presets import get_today_preset, preset_labels, preset_by_label, day_from_label, save_preset_override
 from uploaders.youtube import upload as yt_upload
 from uploaders.tiktok import upload as tt_upload
 from uploaders.instagram import upload as ig_upload
@@ -24,17 +24,22 @@ def get_video_choices() -> list[str]:
 
 
 def apply_preset(label: str) -> tuple[str, str]:
-    """Retorna (hashtags, keywords) del preset seleccionado."""
     preset = preset_by_label(label)
     return preset["hashtags"], preset["keywords"]
 
 
+def on_tab_change(mode: str):
+    save_mode(mode)
+
+
 def run_upload(
+    mode: str,
     video_name: str,
     title: str,
     description: str,
     hashtags: str,
     keywords_raw: str,
+    preset_label: str,
     category_label: str,
     language: str,
     pub_date: str,
@@ -50,7 +55,17 @@ def run_upload(
     keywords = [k.strip() for k in keywords_raw.split(",") if k.strip()]
     category_id = YT_CATEGORIES.get(category_label, YT_DEFAULT_CATEGORY)
     caption = build_caption(title, description, hashtags)
-    schedule_dt = get_schedule_datetime(pub_date, pub_time)
+
+    now = datetime.now(ART_TZ)
+
+    if mode == "publicar":
+        ig_dt = now
+        yt_dt = now + timedelta(minutes=10)
+        tt_dt = now + timedelta(minutes=25)
+    else:
+        ig_dt = get_schedule_datetime(pub_date, pub_time)
+        yt_dt = get_schedule_datetime(pub_date, pub_time)
+        tt_dt = get_schedule_datetime(pub_date, pub_time)
 
     results = {"youtube": None, "tiktok": None, "instagram": None}
     errors = {}
@@ -61,7 +76,10 @@ def run_upload(
         log += msg
         return log
 
-    yield emit(f"Programando para las {pub_time} ART del {pub_date}\n")
+    if mode == "publicar":
+        yield emit(f"Modo: PUBLICAR — Instagram ahora, YouTube en ~10min, TikTok en ~25min\n")
+    else:
+        yield emit(f"Modo: PROGRAMAR — {pub_time} ART del {pub_date}\n")
     yield emit(f"Video: {video_name}\n")
     yield emit("---\n")
 
@@ -69,7 +87,7 @@ def run_upload(
     try:
         asyncio.run(yt_upload(
             str(video_path), title, description, hashtags,
-            keywords, language, category_id, schedule_dt
+            keywords, language, category_id, yt_dt
         ))
         results["youtube"] = "ok"
         yield emit("YouTube: OK\n")
@@ -80,7 +98,7 @@ def run_upload(
 
     yield emit("TikTok: subiendo...\n")
     try:
-        asyncio.run(tt_upload(str(video_path), title, description, hashtags, schedule_dt))
+        asyncio.run(tt_upload(str(video_path), title, description, hashtags, tt_dt))
         results["tiktok"] = "ok"
         yield emit("TikTok: OK\n")
     except Exception as e:
@@ -88,17 +106,28 @@ def run_upload(
         errors["tiktok"] = str(e)
         yield emit(f"TikTok: ERROR — {e}\n")
 
-    yield emit("Instagram: subiendo...\n")
-    try:
-        asyncio.run(ig_upload(str(video_path), caption, schedule_dt))
-        results["instagram"] = "ok"
-        yield emit("Instagram: OK\n")
-    except Exception as e:
-        results["instagram"] = "error"
-        errors["instagram"] = str(e)
-        yield emit(f"Instagram: ERROR — {e}\n")
+    if mode == "publicar":
+        yield emit("Instagram: subiendo...\n")
+        try:
+            asyncio.run(ig_upload(str(video_path), caption, ig_dt))
+            results["instagram"] = "ok"
+            yield emit("Instagram: OK\n")
+        except Exception as e:
+            results["instagram"] = "error"
+            errors["instagram"] = str(e)
+            yield emit(f"Instagram: ERROR — {e}\n")
+    else:
+        results["instagram"] = "skipped"
+        yield emit("Instagram: SKIPPED (scheduling no disponible via API)\n")
 
-    if all(v == "ok" for v in results.values()):
+    yt_ok = results["youtube"] == "ok"
+    tt_ok = results["tiktok"] == "ok"
+
+    # Auto-guardar hashtags/keywords si el usuario los modifico
+    day = day_from_label(preset_label)
+    save_preset_override(day, hashtags, keywords_raw)
+
+    if yt_ok and tt_ok:
         metadata = {
             "video": video_name,
             "title": title,
@@ -107,14 +136,15 @@ def run_upload(
             "keywords": keywords,
             "category_id": category_id,
             "language": language,
-            "scheduled_for": schedule_dt.isoformat(),
-            "uploaded_at": datetime.now(ART_TZ).isoformat(),
+            "mode": mode,
+            "scheduled_for": yt_dt.isoformat(),
+            "uploaded_at": now.isoformat(),
             "results": results,
         }
         move_to_finalized(video_path, metadata)
         yield emit("\nFinalizado: video movido a ~/shorts-uploader/finalized/\n")
     else:
-        yield emit("\nHubo errores en algunas plataformas. El video NO fue movido a finalized.\n")
+        yield emit("\nHubo errores en YouTube o TikTok. El video NO fue movido a finalized.\n")
         for platform, err in errors.items():
             if err:
                 yield emit(f"  {platform}: {err}\n")
@@ -126,6 +156,7 @@ def build_ui():
     default_time = f"{DEFAULT_PUBLISH_HOUR:02d}:{DEFAULT_PUBLISH_MINUTE:02d}"
     day_name, today_preset = get_today_preset()
     dia_es = DIAS_ES[today.weekday()]
+    saved_mode = load_mode()
 
     with gr.Blocks(title="Shorts Uploader") as app:
 
@@ -175,19 +206,39 @@ def build_ui():
                 label="Idioma",
             )
 
-        gr.Markdown("### Programar publicacion")
-        with gr.Row():
-            date_input = gr.Textbox(label="Fecha (YYYY-MM-DD)", value=today_str)
-            time_input = gr.Dropdown(
-                choices=[f"{h:02d}:{m:02d}" for h in range(0, 24) for m in (0, 30)],
-                value=default_time,
-                label="Hora ART",
-            )
+        gr.Markdown("### Modo de publicacion")
+        mode_state = gr.State(saved_mode)
 
-        run_btn = gr.Button("SUBIR A LAS 3 PLATAFORMAS", variant="primary")
+        with gr.Tabs() as tabs:
+            with gr.TabItem("Publicar", id="publicar") as tab_publicar:
+                gr.Markdown(
+                    "El contenido sera publicado lo antes posible:  \n"
+                    "**Instagram** — ahora  |  **YouTube** — en ~10 min  |  **TikTok** — en ~25 min"
+                )
+            with gr.TabItem("Programar publicacion", id="programar") as tab_programar:
+                with gr.Row():
+                    date_input = gr.Textbox(label="Fecha (YYYY-MM-DD)", value=today_str)
+                    time_input = gr.Dropdown(
+                        choices=[f"{h:02d}:{m:02d}" for h in range(0, 24) for m in (0, 30)],
+                        value=default_time,
+                        label="Hora ART",
+                    )
+                gr.Markdown("*Instagram no se sube en modo Programar (limitacion de API de Meta).*")
+
+        run_btn = gr.Button("PUBLICAR EN LAS 3 PLATAFORMAS", variant="primary")
         log_output = gr.Textbox(label="Log", lines=15, interactive=False)
 
-        # Cuando cambia el preset, actualiza hashtags y keywords
+        def on_select_publicar():
+            save_mode("publicar")
+            return "publicar"
+
+        def on_select_programar():
+            save_mode("programar")
+            return "programar"
+
+        tab_publicar.select(fn=on_select_publicar, outputs=mode_state)
+        tab_programar.select(fn=on_select_programar, outputs=mode_state)
+
         preset_dropdown.change(
             fn=apply_preset,
             inputs=[preset_dropdown],
@@ -202,8 +253,9 @@ def build_ui():
         run_btn.click(
             fn=run_upload,
             inputs=[
+                mode_state,
                 video_dropdown, title_input, desc_input, hashtags_input,
-                keywords_input, category_input, language_input, date_input, time_input,
+                keywords_input, preset_dropdown, category_input, language_input, date_input, time_input,
             ],
             outputs=log_output,
         )
