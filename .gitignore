@@ -8,3 +8,4 @@ debug_*.json
 .DS_Store
 uploader-mode.json
 presets-custom.json
+debug_*.png

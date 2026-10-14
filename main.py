@@ -1,5 +1,6 @@
 import gradio as gr
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, date
 from pathlib import Path
 import pytz
@@ -224,6 +225,10 @@ def run_upload(
         ig_dt = get_schedule_datetime(pub_date, pub_time)
         yt_dt = get_schedule_datetime(pub_date, pub_time)
         tt_dt = get_schedule_datetime(pub_date, pub_time)
+        # TikTok rechaza horarios a menos de ~15 min; validar antes de abrir browsers
+        if yt_dt - now < timedelta(minutes=20):
+            yield "Error: la fecha/hora tiene que ser al menos 20 minutos en el futuro."
+            return
 
     results = {"youtube": None, "tiktok": None, "instagram": None}
     errors = {}
@@ -242,36 +247,37 @@ def run_upload(
     yield emit(f"Video: {video_name}\n")
     yield emit("---\n")
 
+    # YouTube y TikTok corren en paralelo, cada uno en su propio browser
+    jobs = {}
     if "YouTube" in platforms:
-        yield emit("YouTube: subiendo...\n")
-        try:
-            asyncio.run(yt_upload(
-                str(video_path), title, description, hashtags,
-                keywords, language, category_id, yt_dt
-            ))
-            results["youtube"] = "ok"
-            yield emit("YouTube: OK\n")
-        except Exception as e:
-            results["youtube"] = "error"
-            errors["youtube"] = str(e)
-            yield emit(f"YouTube: ERROR — {e}\n")
-    else:
-        results["youtube"] = "skipped"
-        yield emit("YouTube: SKIPPED\n")
-
+        jobs["youtube"] = lambda: asyncio.run(yt_upload(
+            str(video_path), title, description, hashtags,
+            keywords, language, category_id, yt_dt
+        ))
     if "TikTok" in platforms:
-        yield emit("TikTok: subiendo...\n")
-        try:
-            asyncio.run(tt_upload(str(video_path), title, description, hashtags, tt_dt))
-            results["tiktok"] = "ok"
-            yield emit("TikTok: OK\n")
-        except Exception as e:
-            results["tiktok"] = "error"
-            errors["tiktok"] = str(e)
-            yield emit(f"TikTok: ERROR — {e}\n")
-    else:
-        results["tiktok"] = "skipped"
-        yield emit("TikTok: SKIPPED\n")
+        jobs["tiktok"] = lambda: asyncio.run(
+            tt_upload(str(video_path), title, description, hashtags, tt_dt)
+        )
+    names = {"youtube": "YouTube", "tiktok": "TikTok"}
+    for key in ("youtube", "tiktok"):
+        if key not in jobs:
+            results[key] = "skipped"
+            yield emit(f"{names[key]}: SKIPPED\n")
+
+    if jobs:
+        yield emit(" + ".join(names[k] for k in jobs) + ": subiendo en paralelo...\n")
+        with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+            futures = {pool.submit(fn): key for key, fn in jobs.items()}
+            for fut in as_completed(futures):
+                key = futures[fut]
+                try:
+                    fut.result()
+                    results[key] = "ok"
+                    yield emit(f"{names[key]}: OK\n")
+                except Exception as e:
+                    results[key] = "error"
+                    errors[key] = str(e)
+                    yield emit(f"{names[key]}: ERROR — {e}\n")
 
     if mode == "publicar" and "Instagram" in platforms:
         yield emit("Instagram: subiendo...\n")

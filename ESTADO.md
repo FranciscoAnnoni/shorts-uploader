@@ -1,6 +1,6 @@
 # Estado del proyecto — Shorts Uploader
 
-> Última actualización: 2026-05-08
+> Última actualización: 2026-10-14
 
 ---
 
@@ -8,6 +8,13 @@
 
 | Plataforma | Estado | Notas |
 |---|---|---|
+| YouTube | FUNCIONANDO | Browser (Playwright). Programado probado end-to-end el 2026-10-14. |
+| TikTok | FUNCIONANDO | Browser (Playwright). Programado a otro dia probado el 2026-10-14. |
+| Instagram | PENDIENTE | Graph API publica en el momento; la API no soporta programar Reels. Plan: scheduler en skynet (ver abajo). |
+
+YouTube y TikTok corren en paralelo desde la app. La app solo marca OK cuando cada plataforma confirmo la programacion (subida al 100% + confirmacion de la plataforma); recien ahi se puede cerrar.
+
+---|---|---|
 | YouTube | FUNCIONANDO | Probado end-to-end. Se programa y publica correctamente. |
 | TikTok | FUNCIONANDO* | Caption, upload y scheduling OK. Verificación final pendiente. |
 | Instagram | INCOMPLETO | El bot ejecuta el flujo pero Meta no muestra el Reel en Scheduled. Ver sección de bugs. |
@@ -149,7 +156,6 @@ python test_instagram.py   # o test_tiktok.py, test_youtube.py
 
 ## Próximos pasos
 
-- [ ] Verificar si el Reel de Instagram del 2026-05-08 15:00 ART se publicó
-- [ ] Si no se publicó: evaluar migrar Instagram a la Graph API de Meta
-- [ ] Verificar TikTok end-to-end con video real programado y publicado
-- [ ] Run completo de `main.py` con las 3 plataformas simultáneas
+- [ ] Instagram programado: servicio en skynet (systemd timer) con cola de videos. La app manda video + job por `scp` via Tailscale; a la hora, skynet sube a hosting temporal, crea el container y hace `media_publish`, despues borra el video. Pendiente hasta mover skynet a una conexion de red fija.
+- [ ] Reemplazar las esperas fijas (`asyncio.sleep`) que quedan en los uploaders por esperas a elementos.
+- [ ] Investigar cuelgue visto una vez en YouTube al cerrar el browser (hay logs en el paso 22).

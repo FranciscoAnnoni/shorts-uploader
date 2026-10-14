@@ -101,10 +101,9 @@ async def upload(
         # Esperar a que la página cargue completamente (maneja redirect de login)
         print("[TT] 1b. Esperando que cargue el form de upload...")
         try:
-            await page.wait_for_selector('input[type="file"]', timeout=10000)
+            await page.wait_for_selector('input[type="file"]', state="attached", timeout=30000)
         except Exception:
             print("[TT] 1b. Timeout esperando el form — puede ser redirect de login")
-        await asyncio.sleep(2)
 
         # 2. Subir archivo
         print("[TT] 2. Subiendo archivo...")
@@ -181,8 +180,14 @@ async def upload(
         await minute_option.click(timeout=5000)
         await asyncio.sleep(0.5)
 
-        # 10. Día en el calendario
-        print(f"[TT] 10. Día {schedule_dt.day}...")
+        # 10. Fecha: el segundo desplegable (el primero es la hora). Por defecto
+        # TikTok trae la fecha de hoy, asi que hay que abrirlo para otro dia.
+        target_date = schedule_dt.strftime("%Y-%m-%d")
+        print(f"[TT] 10. Fecha {target_date}...")
+        await page.keyboard.press("Escape")
+        await asyncio.sleep(0.3)
+        await page.locator('div.TUXTextInputCore-trailingIconWrapper').nth(1).click(timeout=5000)
+        await asyncio.sleep(0.5)
         target_day = str(schedule_dt.day)
         for _ in range(3):
             day_clicked = await page.evaluate(f"""
@@ -212,6 +217,15 @@ async def upload(
                 timeout=2000,
             )
             await asyncio.sleep(0.5)
+        await asyncio.sleep(0.5)
+        shown = await page.evaluate(
+            "() => Array.from(document.querySelectorAll('input')).map(i => i.value).find(v => /^\\d{4}-\\d{2}-\\d{2}$/.test(v)) || ''"
+        )
+        if shown != target_date:
+            shot = SESSIONS_DIR.parent / "debug_tiktok_date.png"
+            await page.screenshot(path=str(shot))
+            raise RuntimeError(f"TikTok muestra fecha {shown!r} en vez de {target_date} (captura: {shot})")
+        print(f"[TT] 10. Fecha OK: {shown}")
 
         # Cerrar datepicker
         print("[TT] 10b. Cerrando datepicker...")
@@ -222,6 +236,15 @@ async def upload(
 
         # 11. Post
         print("[TT] 11. Publicando...")
+        # TikTok deshabilita el boton mientras procesa el video o corre comprobaciones
+        try:
+            await page.wait_for_selector(
+                '[data-e2e="post_video_button"][data-disabled="false"]', timeout=180000
+            )
+        except Exception:
+            shot = SESSIONS_DIR.parent / "debug_tiktok_post.png"
+            await page.screenshot(path=str(shot), full_page=True)
+            raise RuntimeError(f"Boton Programar de TikTok sigue deshabilitado tras 3 min (captura: {shot})")
         await page.locator('[data-e2e="post_video_button"]').first.click(timeout=15000)
         await asyncio.sleep(3)
 
@@ -235,5 +258,18 @@ async def upload(
         except Exception:
             pass
 
+        # 12. Confirmacion: TikTok sale del formulario de subida (va a la lista de
+        # contenido). Si el boton sigue ahi, la programacion no se envio.
+        print("[TT] 12. Esperando confirmacion...")
+        try:
+            await page.locator('[data-e2e="post_video_button"]').wait_for(state="detached", timeout=90000)
+        except Exception:
+            shot = SESSIONS_DIR.parent / "debug_tiktok_confirm.png"
+            await page.screenshot(path=str(shot))
+            raise RuntimeError(f"TikTok no confirmo la programacion (captura: {shot})")
+        print(f"[TT] 12. Confirmado. URL: {page.url}")
+
+        print("[TT] 13. Cerrando browser...")
         await context.close()
+        print("[TT] 13. Browser cerrado.")
     return "ok"

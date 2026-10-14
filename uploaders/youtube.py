@@ -94,10 +94,16 @@ async def upload(
         await asyncio.sleep(3)
 
         print("[YT] 2. Crear → Subir vídeos")
-        await page.click('[aria-label="Crear"]', timeout=15000)
-        await asyncio.sleep(1)
-        await page.click('#text-item-0', timeout=10000)
-        await asyncio.sleep(2)
+        upload_item = page.locator('tp-yt-paper-item[test-id="upload"]')
+        for attempt in range(3):
+            await page.click('[aria-label="Crear"]', timeout=15000)
+            try:
+                await upload_item.wait_for(state="visible", timeout=5000)
+                break
+            except Exception:
+                print(f"[YT] 2. Menu Crear no abrio (intento {attempt + 1}), reintentando...")
+        await upload_item.click(timeout=10000)
+        await page.locator('[name="Filedata"]').first.wait_for(state="attached", timeout=15000)
 
         print("[YT] 3. Subiendo archivo...")
         file_input = page.locator('[name="Filedata"]').first
@@ -301,18 +307,12 @@ async def upload(
                 break
             await _click_if_visible(page, '[aria-label="Mes siguiente"], [aria-label="Next month"]', timeout=3000)
             await asyncio.sleep(1)
-        # Cerrar calendario — Escape + click fuera + esperar que desaparezca el overlay
-        await page.keyboard.press("Escape")
+        # El calendario se cierra solo al elegir el dia. Escape solo si sigue abierto:
+        # con el calendario cerrado, Escape cierra el dialogo de subida (queda como borrador).
         await asyncio.sleep(0.5)
-        try:
-            await page.wait_for_selector(
-                'tp-yt-iron-overlay-backdrop.opened', state='hidden', timeout=4000
-            )
-        except Exception:
-            # Forzar cierre clickeando fuera del picker
-            await page.mouse.click(200, 200)
-            await asyncio.sleep(0.5)
-        await asyncio.sleep(0.5)
+        if await page.locator('[class*="calendar"]').first.is_visible():
+            await page.keyboard.press("Escape")
+        await date_trigger.wait_for(state="visible", timeout=5000)
         trigger_text = await date_trigger.inner_text()
         print(f"[YT] 18. Fecha: {trigger_text.strip()!r}")
 
@@ -342,37 +342,51 @@ async def upload(
             print(f"[YT] 19. Opción {time_display!r} no encontrada en dropdown, tipeando...")
             await time_field.click(click_count=3)
             await page.keyboard.type(time_display)
+        # Escape solo si el dropdown de horas sigue abierto. El backdrop
+        # tp-yt-iron-overlay-backdrop tambien es del dialogo de subida y un Escape
+        # de mas lo cierra (queda como borrador).
+        await asyncio.sleep(0.5)
+        if await page.locator('tp-yt-paper-item:visible', has_text=time_display).count():
             await page.keyboard.press("Escape")
-            await asyncio.sleep(0.3)
-        # Esperar que el overlay del dropdown cierre
-        try:
-            await page.wait_for_selector(
-                'tp-yt-iron-overlay-backdrop.opened', state='hidden', timeout=4000
-            )
-        except Exception:
-            await page.keyboard.press("Escape")
-            await asyncio.sleep(0.5)
         actual_val = await time_field.input_value()
         print(f"[YT] 19. Hora: {actual_val!r}")
 
         # 20. Botón Programar — esperar que no haya overlay bloqueando
+        # 20. No programar hasta que el archivo termino de subir: si se cierra el
+        # browser a mitad de la subida, YouTube no tiene el video completo.
+        print("[YT] 20. Esperando que termine la subida...")
+        await page.wait_for_function(
+            """() => {
+                const l = document.querySelector('ytcp-video-upload-progress .progress-label');
+                return l && !/Subi[eé]ndose|Uploading/.test(l.innerText);
+            }""",
+            timeout=15 * 60 * 1000,
+        )
+        label = await page.locator('ytcp-video-upload-progress .progress-label').inner_text()
+        print(f"[YT] 20. {label.strip()!r}")
         print("[YT] 20. Programar...")
-        try:
-            await page.wait_for_selector(
-                'tp-yt-iron-overlay-backdrop.opened', state='hidden', timeout=5000
-            )
-        except Exception:
-            pass
-        await page.click('[aria-label="Programar"]', timeout=15000)
-        await asyncio.sleep(3)
+        done_btn = page.locator('#done-button')
+        print(f"[YT] 20. Boton: {(await done_btn.inner_text(timeout=10000)).strip()!r}")
+        await done_btn.click(timeout=15000)
 
-        # 21. Warning de idoneidad para anuncios
-        await _click_if_visible(page, '[aria-label="Entendido"]', timeout=5000)
-        await asyncio.sleep(1)
+        # 21. YouTube guarda (~30-40s) y puede mostrar "Aun estamos comprobando tu
+        # contenido" con boton Entendido. Listo cuando aparece "Se ha programado...".
+        print("[YT] 21. Esperando confirmacion...")
+        entendido = page.locator('button[aria-label="Entendido"]:visible')
+        confirmed = page.locator('text=Se ha programado la publicación').first
+        for _ in range(120):
+            if await confirmed.is_visible():
+                break
+            if await entendido.count():
+                print("[YT] 21. Modal de comprobaciones, Entendido.")
+                await entendido.first.click()
+            await asyncio.sleep(1)
+        else:
+            raise TimeoutError("YouTube no confirmo la programacion en 120s")
+        print("[YT] 21. Programado confirmado.")
+        await _click_if_visible(page, '#close-button', timeout=3000)
 
-        # 22. Dialog de compartir → cerrar
-        await _click_if_visible(page, '[aria-label="Cerrar"]', timeout=8000)
-        await asyncio.sleep(2)
-
+        print("[YT] 22. Cerrando browser...")
         await context.close()
+        print("[YT] 22. Browser cerrado.")
     return "ok"
