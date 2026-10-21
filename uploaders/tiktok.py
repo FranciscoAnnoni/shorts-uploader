@@ -30,6 +30,7 @@ async def upload(
     description: str,
     hashtags: str,
     schedule_dt: datetime,
+    on_confirmed=None,
 ) -> str:
     now_art = datetime.now(ART_TZ)
     dt_aware = ART_TZ.localize(schedule_dt) if schedule_dt.tzinfo is None else schedule_dt
@@ -268,8 +269,14 @@ async def upload(
             await page.screenshot(path=str(shot))
             raise RuntimeError(f"TikTok no confirmo la programacion (captura: {shot})")
         print(f"[TT] 12. Confirmado. URL: {page.url}")
+        if on_confirmed:
+            on_confirmed()  # avisar ya: el cierre del browser a veces se cuelga
 
         print("[TT] 13. Cerrando browser...")
-        await context.close()
-        print("[TT] 13. Browser cerrado.")
+        # el video ya esta confirmado: si el browser no cierra, no colgar la app
+        try:
+            await asyncio.wait_for(context.close(), timeout=20)
+            print("[TT] 13. Browser cerrado.")
+        except asyncio.TimeoutError:
+            print("[TT] 13. El browser no cerro en 20 s, sigo igual.")
     return "ok"

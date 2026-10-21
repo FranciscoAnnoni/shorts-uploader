@@ -26,3 +26,9 @@ META_BUSINESS_URL = "https://business.facebook.com/latest/home"
 
 # Limites
 TIKTOK_CAPTION_MAX_CHARS = 2200
+
+# Instagram: lo programa n8n en skynet (ver ~/Proyectos/ig-scheduler)
+IG_QUEUE_SSH_HOST = "skynet"
+IG_QUEUE_DIR = "/opt/stacks/ig-queue"
+IG_WEBHOOK_URL = "http://skynet:5678/webhook/ig-encolar"  # MagicDNS de Tailscale
+IG_UPLOADER_KEY_FILE = Path.home() / ".config" / "shorts-uploader" / "ig-uploader-key"

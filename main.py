@@ -1,6 +1,11 @@
 import gradio as gr
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import queue
+import subprocess
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from pathlib import Path
 import pytz
@@ -199,7 +204,7 @@ def run_upload(
     from config import PENDING_DIR
 
     if not platforms:
-        yield "Error: selecciona al menos una plataforma (YouTube o TikTok)."
+        yield "Error: selecciona al menos una plataforma."
         return
 
     if not video_name:
@@ -226,8 +231,11 @@ def run_upload(
         yt_dt = get_schedule_datetime(pub_date, pub_time)
         tt_dt = get_schedule_datetime(pub_date, pub_time)
         # TikTok rechaza horarios a menos de ~15 min; validar antes de abrir browsers
-        if yt_dt - now < timedelta(minutes=20):
+        if {"YouTube", "TikTok"} & set(platforms) and yt_dt - now < timedelta(minutes=20):
             yield "Error: la fecha/hora tiene que ser al menos 20 minutos en el futuro."
+            return
+        if ig_dt < now:
+            yield "Error: la fecha/hora ya paso."
             return
 
     results = {"youtube": None, "tiktok": None, "instagram": None}
@@ -247,54 +255,74 @@ def run_upload(
     yield emit(f"Video: {video_name}\n")
     yield emit("---\n")
 
-    # YouTube y TikTok corren en paralelo, cada uno en su propio browser
+    # Las tres corren en paralelo. Cada una avisa por la cola apenas la plataforma
+    # confirmo, sin esperar a que cierre el browser (el cierre de TikTok a veces
+    # se cuelga y antes eso dejaba sin aviso a TikTok y sin correr a Instagram).
+    events = queue.Queue()
+    loops = {}
+
+    async def tracked(key, coro):
+        loops[key] = asyncio.get_running_loop()
+        return await coro
+
+    def run_job(key, make_coro):
+        try:
+            result = asyncio.run(tracked(key, make_coro(lambda: events.put((key, "ok", "")))))
+            events.put((key, "ok", result if key == "instagram" else ""))
+        except Exception as e:
+            events.put((key, "error", str(e)))
+
     jobs = {}
     if "YouTube" in platforms:
-        jobs["youtube"] = lambda: asyncio.run(yt_upload(
+        jobs["youtube"] = lambda done: yt_upload(
             str(video_path), title, description, hashtags,
-            keywords, language, category_id, yt_dt
-        ))
-    if "TikTok" in platforms:
-        jobs["tiktok"] = lambda: asyncio.run(
-            tt_upload(str(video_path), title, description, hashtags, tt_dt)
+            keywords, language, category_id, yt_dt, on_confirmed=done,
         )
-    names = {"youtube": "YouTube", "tiktok": "TikTok"}
-    for key in ("youtube", "tiktok"):
+    if "TikTok" in platforms:
+        jobs["tiktok"] = lambda done: tt_upload(
+            str(video_path), title, description, hashtags, tt_dt, on_confirmed=done,
+        )
+    if "Instagram" in platforms:
+        jobs["instagram"] = lambda done: ig_upload(str(video_path), caption, ig_dt)
+    names = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram"}
+    for key in ("youtube", "tiktok", "instagram"):
         if key not in jobs:
             results[key] = "skipped"
             yield emit(f"{names[key]}: SKIPPED\n")
 
     if jobs:
         yield emit(" + ".join(names[k] for k in jobs) + ": subiendo en paralelo...\n")
-        with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
-            futures = {pool.submit(fn): key for key, fn in jobs.items()}
-            for fut in as_completed(futures):
-                key = futures[fut]
-                try:
-                    fut.result()
-                    results[key] = "ok"
-                    yield emit(f"{names[key]}: OK\n")
-                except Exception as e:
-                    results[key] = "error"
-                    errors[key] = str(e)
-                    yield emit(f"{names[key]}: ERROR — {e}\n")
+        pool = ThreadPoolExecutor(max_workers=len(jobs))
+        futures = {key: pool.submit(run_job, key, make_coro) for key, make_coro in jobs.items()}
 
-    if mode == "publicar" and "Instagram" in platforms:
-        yield emit("Instagram: subiendo...\n")
-        try:
-            asyncio.run(ig_upload(str(video_path), caption, ig_dt))
-            results["instagram"] = "ok"
-            yield emit("Instagram: OK\n")
-        except Exception as e:
-            results["instagram"] = "error"
-            errors["instagram"] = str(e)
-            yield emit(f"Instagram: ERROR — {e}\n")
-    elif mode == "publicar":
-        results["instagram"] = "skipped"
-        yield emit("Instagram: SKIPPED\n")
-    else:
-        results["instagram"] = "skipped"
-        yield emit("Instagram: SKIPPED (scheduling no disponible via API)\n")
+        pending = set(jobs)
+        deadline = time.monotonic() + 35 * 60
+        while pending:
+            try:
+                key, status, detail = events.get(timeout=max(1, deadline - time.monotonic()))
+            except queue.Empty:
+                break
+            if key not in pending:
+                continue  # ya habia avisado al confirmar
+            pending.discard(key)
+            results[key] = status
+            if status == "ok":
+                yield emit(f"{names[key]}: OK{f' — {detail}' if detail else ''}\n")
+            else:
+                errors[key] = detail
+                yield emit(f"{names[key]}: ERROR — {detail}\n")
+        for key in pending:
+            results[key] = "error"
+            errors[key] = "no respondio en 35 min"
+            yield emit(f"{names[key]}: ERROR — no respondio en 35 min, revisar a mano\n")
+        # no esperar a los browsers que no cerraron; si a los 60 s alguno sigue,
+        # dejar en el log en que await quedo trabado
+        pool.shutdown(wait=False)
+        threading.Timer(60, dump_stuck, args=(futures, loops, names)).start()
+
+        yield emit("---\n" + "\n".join(
+            f"{names[k]}: {'OK' if results[k] == 'ok' else 'ERROR'}" for k in jobs
+        ) + "\n")
 
     # Auto-guardar hashtags/keywords si el usuario los modifico
     day = day_from_label(preset_label)
@@ -330,6 +358,25 @@ def run_upload(
                 yield emit(f"  {platform}: {err}\n")
 
 
+def dump_stuck(futures, loops, names):
+    for key, fut in futures.items():
+        loop = loops.get(key)
+        if fut.done() or loop is None:
+            continue
+        print(f"\n[DEBUG] {names[key]} sigue sin terminar 60 s despues. Donde quedo esperando:", flush=True)
+        for task in asyncio.all_tasks(loop):
+            coro = task.get_coro()
+            while coro is not None:  # bajar por la cadena de awaits hasta el ultimo
+                frame = getattr(coro, "cr_frame", None) or getattr(coro, "gi_frame", None)
+                if frame:
+                    print(f"  {frame.f_code.co_filename}:{frame.f_lineno} en {frame.f_code.co_name}")
+                coro = getattr(coro, "cr_await", None) or getattr(coro, "gi_yieldfrom", None)
+        # sospecha: GoogleUpdater (lo lanza Chrome al cerrar) retiene el stderr y Playwright no termina
+        updater = subprocess.run(["pgrep", "-fl", "GoogleUpdater"], capture_output=True, text=True).stdout.strip()
+        print(f"[DEBUG] GoogleUpdater corriendo: {updater or 'no'}")
+        sys.stdout.flush()
+
+
 def build_ui():
     today = date.today()
     today_str = today.strftime("%Y-%m-%d")
@@ -339,7 +386,7 @@ def build_ui():
     saved_mode = load_mode()
 
     CHIPS_PUBLICAR  = ["YouTube", "TikTok", "Instagram"]
-    CHIPS_PROGRAMAR = ["YouTube", "TikTok"]
+    CHIPS_PROGRAMAR = ["YouTube", "TikTok", "Instagram"]
 
     with gr.Blocks(title="Shorts Uploader") as app:
 
@@ -424,7 +471,7 @@ def build_ui():
                                 scale=2,
                                 min_width=90,
                             )
-                        gr.Markdown("<small>Instagram no se programa via API.</small>")
+                        gr.Markdown("<small>Instagram lo programa n8n en skynet.</small>")
 
                 initial_chips = CHIPS_PUBLICAR if saved_mode == "publicar" else CHIPS_PROGRAMAR
                 platform_chips = gr.CheckboxGroup(

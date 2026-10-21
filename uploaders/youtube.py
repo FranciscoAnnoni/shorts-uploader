@@ -28,6 +28,7 @@ async def upload(
     language: str,
     category_id: str,
     schedule_dt: datetime,
+    on_confirmed=None,
 ) -> str:
     session_path = str(SESSIONS_DIR / "youtube")
     full_description = f"{description}\n\n{hashtags}"
@@ -384,9 +385,15 @@ async def upload(
         else:
             raise TimeoutError("YouTube no confirmo la programacion en 120s")
         print("[YT] 21. Programado confirmado.")
+        if on_confirmed:
+            on_confirmed()  # avisar ya: el cierre del browser a veces se cuelga
         await _click_if_visible(page, '#close-button', timeout=3000)
 
         print("[YT] 22. Cerrando browser...")
-        await context.close()
-        print("[YT] 22. Browser cerrado.")
+        # el video ya esta confirmado: si el browser no cierra, no colgar la app
+        try:
+            await asyncio.wait_for(context.close(), timeout=20)
+            print("[YT] 22. Browser cerrado.")
+        except asyncio.TimeoutError:
+            print("[YT] 22. El browser no cerro en 20 s, sigo igual.")
     return "ok"

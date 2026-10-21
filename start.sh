@@ -9,4 +9,6 @@ if [ -n "$PID" ]; then
 fi
 
 source venv/bin/activate
-python main.py
+# todo lo que imprime la app queda tambien en logs/AAAA-MM-DD.log
+mkdir -p logs
+python -u main.py 2>&1 | tee -a "logs/$(date +%F).log"

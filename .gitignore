@@ -9,3 +9,4 @@ debug_*.json
 uploader-mode.json
 presets-custom.json
 debug_*.png
+logs/
