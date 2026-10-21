@@ -1,6 +1,6 @@
 # Estado del proyecto — Shorts Uploader
 
-> Última actualización: 2026-10-14
+> Última actualización: 2026-10-21
 
 ---
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | YouTube | FUNCIONANDO | Browser (Playwright). Programado probado end-to-end el 2026-10-14. |
 | TikTok | FUNCIONANDO | Browser (Playwright). Programado a otro dia probado el 2026-10-14. |
-| Instagram | PENDIENTE | Graph API publica en el momento; la API no soporta programar Reels. Plan: scheduler en skynet (ver abajo). |
+| Instagram | FUNCIONANDO | n8n en skynet + Cloudflare R2 (ver README). Publicacion real probada end-to-end el 2026-10-21. |
 
 YouTube y TikTok corren en paralelo desde la app. La app solo marca OK cuando cada plataforma confirmo la programacion (subida al 100% + confirmacion de la plataforma); recien ahi se puede cerrar.
 
