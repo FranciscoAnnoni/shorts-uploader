@@ -9,6 +9,9 @@ if [ -n "$PID" ]; then
 fi
 
 source venv/bin/activate
-# todo lo que imprime la app queda tambien en logs/AAAA-MM-DD.log
+# todo lo que imprime la app queda tambien en logs/AAAA-MM-DD.log, con la hora
+# de cada linea para medir cuanto tarda cada paso
 mkdir -p logs
-python -u main.py 2>&1 | tee -a "logs/$(date +%F).log"
+python -u main.py 2>&1 \
+    | perl -MPOSIX -pe 'BEGIN { $| = 1 } $_ = strftime("%H:%M:%S ", localtime) . $_' \
+    | tee -a "logs/$(date +%F).log"
