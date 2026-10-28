@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import datetime
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -253,9 +254,12 @@ async def upload(
         # 15. Siguiente desde verificaciones — esperar que no esté disabled
         print("[YT] 15. Siguiente (verificaciones)...")
         next_btn = page.locator('[aria-label="Siguiente"]').first
-        for _ in range(30):  # hasta 60s mientras checks corren
+        # con archivos grandes queda deshabilitado mientras sube y corren los checks
+        for i in range(450):  # hasta 15 min
             if await next_btn.get_attribute('aria-disabled') != 'true':
                 break
+            if i % 15 == 0:
+                print(f"[YT] 15. Siguiente deshabilitado, esperando ({i * 2} s)...")
             await asyncio.sleep(2)
         await next_btn.click(timeout=15000)
         await asyncio.sleep(3)
@@ -274,83 +278,89 @@ async def upload(
         await page.wait_for_selector('#visibility-title', timeout=30000)
         await asyncio.sleep(2)
 
-        # 17b. Expandir sección "Programar" SOLO si está colapsada
-        print("[YT] 17b. Verificando sección Programar...")
-        expand_attr = await page.locator('#second-container-expand-button').get_attribute('hidden')
-        if expand_attr is None:
-            print("[YT] 17b. Colapsada — expandiendo...")
-            await page.locator('#second-container-expand-button').click()
+        if schedule_dt is None:
+            # publicar ya: visibilidad Publico en vez de la seccion Programar
+            print("[YT] 17b. Publico...")
+            await page.locator('tp-yt-paper-radio-button[name="PUBLIC"]').click(timeout=10000)
             await asyncio.sleep(1)
         else:
-            print("[YT] 17b. Ya expandida.")
+            # 17b. Expandir sección "Programar" SOLO si está colapsada
+            print("[YT] 17b. Verificando sección Programar...")
+            expand_attr = await page.locator('#second-container-expand-button').get_attribute('hidden')
+            if expand_attr is None:
+                print("[YT] 17b. Colapsada — expandiendo...")
+                await page.locator('#second-container-expand-button').click()
+                await asyncio.sleep(1)
+            else:
+                print("[YT] 17b. Ya expandida.")
 
-        # 18. Fecha — esperar que datepicker sea visible y clickear
-        print("[YT] 18. Fecha...")
-        target_day = schedule_local.day
-        date_trigger = page.locator('#datepicker-trigger').first
-        await date_trigger.wait_for(state="visible", timeout=8000)
-        await date_trigger.click()
-        await asyncio.sleep(1)
-        for _ in range(3):
-            day_clicked = await page.evaluate(f"""
+            # 18. Fecha — esperar que datepicker sea visible y clickear
+            print("[YT] 18. Fecha...")
+            target_day = schedule_local.day
+            date_trigger = page.locator('#datepicker-trigger').first
+            await date_trigger.wait_for(state="visible", timeout=8000)
+            await date_trigger.click()
+            await asyncio.sleep(1)
+            for _ in range(3):
+                day_clicked = await page.evaluate(f"""
+                    () => {{
+                        const cells = document.querySelectorAll('[class*="calendar"] td, [class*="calendar"] [class*="day"]');
+                        for (const cell of cells) {{
+                            if (cell.innerText?.trim() === '{target_day}' && cell.offsetParent) {{
+                                cell.click();
+                                return true;
+                            }}
+                        }}
+                        return false;
+                    }}
+                """)
+                if day_clicked:
+                    break
+                await _click_if_visible(page, '[aria-label="Mes siguiente"], [aria-label="Next month"]', timeout=3000)
+                await asyncio.sleep(1)
+            # El calendario se cierra solo al elegir el dia. Escape solo si sigue abierto:
+            # con el calendario cerrado, Escape cierra el dialogo de subida (queda como borrador).
+            await asyncio.sleep(0.5)
+            if await page.locator('[class*="calendar"]').first.is_visible():
+                await page.keyboard.press("Escape")
+            await date_trigger.wait_for(state="visible", timeout=5000)
+            trigger_text = await date_trigger.inner_text()
+            print(f"[YT] 18. Fecha: {trigger_text.strip()!r}")
+
+            # 19. Hora — el input abre un dropdown con opciones cada 15 min
+            # Formato del dropdown: "H:MM" sin zero-pad en la hora
+            time_display = f"{schedule_local.hour}:{schedule_local.minute:02d}"
+            print(f"[YT] 19. Hora ({time_display})...")
+            time_field = page.locator('#time-of-day-container input').first
+            await time_field.wait_for(state="visible", timeout=5000)
+            await time_field.click()
+            await asyncio.sleep(0.5)
+            # Seleccionar del dropdown por texto exacto
+            clicked = await page.evaluate(f"""
                 () => {{
-                    const cells = document.querySelectorAll('[class*="calendar"] td, [class*="calendar"] [class*="day"]');
-                    for (const cell of cells) {{
-                        if (cell.innerText?.trim() === '{target_day}' && cell.offsetParent) {{
-                            cell.click();
+                    const items = document.querySelectorAll('tp-yt-paper-item, [role="option"]');
+                    for (const item of items) {{
+                        const r = item.getBoundingClientRect();
+                        if (r.height > 0 && item.innerText?.trim() === '{time_display}') {{
+                            item.click();
                             return true;
                         }}
                     }}
                     return false;
                 }}
             """)
-            if day_clicked:
-                break
-            await _click_if_visible(page, '[aria-label="Mes siguiente"], [aria-label="Next month"]', timeout=3000)
-            await asyncio.sleep(1)
-        # El calendario se cierra solo al elegir el dia. Escape solo si sigue abierto:
-        # con el calendario cerrado, Escape cierra el dialogo de subida (queda como borrador).
-        await asyncio.sleep(0.5)
-        if await page.locator('[class*="calendar"]').first.is_visible():
-            await page.keyboard.press("Escape")
-        await date_trigger.wait_for(state="visible", timeout=5000)
-        trigger_text = await date_trigger.inner_text()
-        print(f"[YT] 18. Fecha: {trigger_text.strip()!r}")
-
-        # 19. Hora — el input abre un dropdown con opciones cada 15 min
-        # Formato del dropdown: "H:MM" sin zero-pad en la hora
-        time_display = f"{schedule_local.hour}:{schedule_local.minute:02d}"
-        print(f"[YT] 19. Hora ({time_display})...")
-        time_field = page.locator('#time-of-day-container input').first
-        await time_field.wait_for(state="visible", timeout=5000)
-        await time_field.click()
-        await asyncio.sleep(0.5)
-        # Seleccionar del dropdown por texto exacto
-        clicked = await page.evaluate(f"""
-            () => {{
-                const items = document.querySelectorAll('tp-yt-paper-item, [role="option"]');
-                for (const item of items) {{
-                    const r = item.getBoundingClientRect();
-                    if (r.height > 0 && item.innerText?.trim() === '{time_display}') {{
-                        item.click();
-                        return true;
-                    }}
-                }}
-                return false;
-            }}
-        """)
-        if not clicked:
-            print(f"[YT] 19. Opción {time_display!r} no encontrada en dropdown, tipeando...")
-            await time_field.click(click_count=3)
-            await page.keyboard.type(time_display)
-        # Escape solo si el dropdown de horas sigue abierto. El backdrop
-        # tp-yt-iron-overlay-backdrop tambien es del dialogo de subida y un Escape
-        # de mas lo cierra (queda como borrador).
-        await asyncio.sleep(0.5)
-        if await page.locator('tp-yt-paper-item:visible', has_text=time_display).count():
-            await page.keyboard.press("Escape")
-        actual_val = await time_field.input_value()
-        print(f"[YT] 19. Hora: {actual_val!r}")
+            if not clicked:
+                print(f"[YT] 19. Opción {time_display!r} no encontrada en dropdown, tipeando...")
+                await time_field.click(click_count=3)
+                await page.keyboard.type(time_display)
+            # Escape solo si el dropdown de horas sigue abierto. El backdrop
+            # tp-yt-iron-overlay-backdrop tambien es del dialogo de subida y un Escape
+            # de mas lo cierra (queda como borrador).
+            await asyncio.sleep(0.5)
+            if await page.locator('tp-yt-paper-item:visible', has_text=time_display).count():
+                await page.keyboard.press("Escape")
+            actual_val = await time_field.input_value()
+            print(f"[YT] 19. Hora: {actual_val!r}")
 
         # 20. Botón Programar — esperar que no haya overlay bloqueando
         # 20. No programar hasta que el archivo termino de subir: si se cierra el
@@ -365,16 +375,22 @@ async def upload(
         )
         label = await page.locator('ytcp-video-upload-progress .progress-label').inner_text()
         print(f"[YT] 20. {label.strip()!r}")
-        print("[YT] 20. Programar...")
+        print("[YT] 20. Publicar..." if schedule_dt is None else "[YT] 20. Programar...")
         done_btn = page.locator('#done-button')
         print(f"[YT] 20. Boton: {(await done_btn.inner_text(timeout=10000)).strip()!r}")
         await done_btn.click(timeout=15000)
 
         # 21. YouTube guarda (~30-40s) y puede mostrar "Aun estamos comprobando tu
-        # contenido" con boton Entendido. Listo cuando aparece "Se ha programado...".
+        # contenido" con boton Entendido. Listo cuando aparece "Se ha programado..."
+        # o, al publicar ya, el dialogo para compartir el video publicado.
         print("[YT] 21. Esperando confirmacion...")
         entendido = page.locator('button[aria-label="Entendido"]:visible')
-        confirmed = page.locator('text=Se ha programado la publicación').first
+        if schedule_dt is None:
+            confirmed = page.locator('ytcp-video-share-dialog:visible').or_(
+                page.get_by_text(re.compile("Se ha publicado el v[ií]deo")).filter(visible=True)
+            ).first
+        else:
+            confirmed = page.locator('text=Se ha programado la publicación').first
         for _ in range(120):
             if await confirmed.is_visible():
                 break
@@ -383,8 +399,10 @@ async def upload(
                 await entendido.first.click()
             await asyncio.sleep(1)
         else:
-            raise TimeoutError("YouTube no confirmo la programacion en 120s")
-        print("[YT] 21. Programado confirmado.")
+            shot = SESSIONS_DIR.parent / "debug_youtube_confirm.png"
+            await page.screenshot(path=str(shot))
+            raise TimeoutError(f"YouTube no confirmo en 120s (captura: {shot})")
+        print("[YT] 21. Confirmado.")
         if on_confirmed:
             on_confirmed()  # avisar ya: el cierre del browser a veces se cuelga
         await _click_if_visible(page, '#close-button', timeout=3000)

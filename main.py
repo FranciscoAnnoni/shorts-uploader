@@ -24,153 +24,112 @@ DIAS_ES = {
     4: "Viernes", 5: "Sabado", 6: "Domingo",
 }
 
-THEME = gr.themes.Soft(
-    primary_hue=gr.themes.colors.slate,
-    secondary_hue=gr.themes.colors.gray,
-    neutral_hue=gr.themes.colors.slate,
-)
+THEME = gr.themes.Base()
 
-CHIP_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-
-/* ---- Global font ---- */
-*, *::before, *::after {
-    font-family: 'Plus Jakarta Sans', sans-serif !important;
-}
-
-/* ---- App background ---- */
-body, .gradio-container {
-    background: #f8f9fb !important;
-}
-
-/* ---- Header row ---- */
-#header-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #e0e4e8;
-    margin-bottom: 10px;
-}
-#header-row h1 {
-    margin: 0;
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #191c1e;
-    letter-spacing: -0.02em;
-}
-#header-row p {
-    margin: 0;
-    font-size: 0.82rem;
-    color: #6c757d;
+# Todos los controles miden CTRL (40px): inputs, refresh, tabs, chips y boton.
+UI_CSS = """
+body {
+  --c-bg: #0c0d0f; --c-panel: #131518; --c-raise: #1a1d21; --c-line: #262a30; --c-line-2: #33383f;
+  --c-text: #e8e6e1; --c-dim: #8a8f97; --c-accent: #ff6a1a; --c-accent-dim: rgba(255,106,26,.14);
+  --ctrl: 40px;
+  --body-background-fill: var(--c-bg); --background-fill-primary: var(--c-panel); --background-fill-secondary: var(--c-raise);
+  --body-text-color: var(--c-text); --body-text-color-subdued: var(--c-dim); --block-label-text-color: var(--c-dim); --block-title-text-color: var(--c-dim);
+  --block-background-fill: transparent; --block-border-color: transparent; --border-color-primary: var(--c-line);
+  --input-background-fill: var(--c-raise); --input-background-fill-focus: var(--c-raise); --input-border-color: var(--c-line); --input-border-color-focus: var(--c-accent);
+  --input-radius: 4px; --input-shadow: none; --input-shadow-focus: 0 0 0 3px var(--c-accent-dim);
+  --color-accent: var(--c-accent); --color-accent-soft: var(--c-accent-dim); --border-color-accent: var(--c-accent);
+  --neutral-50: var(--c-raise); --neutral-100: var(--c-raise); --neutral-200: var(--c-line); --neutral-700: var(--c-text);
+  --button-secondary-background-fill: var(--c-raise); --button-secondary-background-fill-hover: #23272c; --button-secondary-text-color: var(--c-text); --button-secondary-border-color: var(--c-line);
+  --font: 'Inter Tight', system-ui, sans-serif; --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  background: var(--c-bg) !important; color: var(--c-text); color-scheme: dark;
 }
 
-/* ---- Section labels ---- */
-.section-label {
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #6c757d;
-    margin: 0;
-    padding: 0;
-    line-height: 1.2;
+/* ---- Layout: ancho fijo (no depende del contenido de la pestana) ---- */
+body .gradio-container { width: 100% !important; max-width: 1200px !important; margin: 0 auto !important; padding: 20px 28px !important; background: var(--c-bg) !important; font-family: var(--font) !important; box-sizing: border-box; }
+body .main.fillable { width: 100% !important; max-width: none !important; padding: 0 !important; }
+body footer { display: none !important; }
+body #main-row { gap: 16px; align-items: stretch !important; }
+body #col-form, body #col-publish { flex-basis: 0 !important; box-sizing: border-box; background: var(--c-panel); border: 1px solid var(--c-line); border-radius: 8px; padding: 18px !important; gap: 12px; }
+
+/* ---- Gradio chrome off ---- */
+body .form { background: none !important; border: none !important; box-shadow: none !important; gap: 12px !important; overflow: visible !important; }
+body .block { padding: 0 !important; background: transparent !important; border: none !important; box-shadow: none !important; }
+body .block.hide-container { margin: 0 !important; min-height: 0 !important; }
+body .html-container, body .html-container .prose { padding: 0 !important; margin: 0 !important; }
+
+/* ---- Header ---- */
+body #header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 0 0 14px; margin-bottom: 16px; border-bottom: 1px solid var(--c-line); }
+body #header-row h1 { display: flex; align-items: center; gap: 10px; margin: 0; font-family: var(--font); font-size: 1.15rem; font-weight: 600; letter-spacing: -0.01em; color: var(--c-text); }
+body .brand-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--c-accent); box-shadow: 0 0 0 3px var(--c-accent-dim), 0 0 12px rgba(255,106,26,.6); }
+body #header-row p { margin: 0; font-family: var(--font-mono); font-size: .74rem; color: var(--c-dim); text-transform: uppercase; letter-spacing: .06em; }
+body .hdr-topic { color: var(--c-text); }
+body .hdr-sep { margin: 0 10px; color: var(--c-line-2); }
+
+/* ---- Labels ---- */
+body .block label.container > span:first-child,
+body .block div.container > span:first-child,
+body #platform-chips > span,
+body .section-label {
+  margin: 0 0 6px; font-family: var(--font-mono) !important; font-size: .68rem !important; font-weight: 500 !important; text-transform: uppercase; letter-spacing: .1em; color: var(--c-dim) !important;
 }
 
-/* ---- Section label containers (gr.HTML blocks) - kill excess padding ---- */
-.block.hide-container {
-    padding: 0 !important;
-    margin: 6px 0 0 0 !important;
-    min-height: 0 !important;
-}
+/* ---- Inputs ---- */
+body textarea, body .block .wrap:has(input[role=listbox]) { font-size: .9rem !important; color: var(--c-text) !important; border: 1px solid var(--c-line) !important; background: var(--c-raise) !important; border-radius: 4px !important; }
+body .block .wrap:has(input[role=listbox]) { min-height: var(--ctrl); box-sizing: border-box; }
+body textarea:focus, body .block .wrap:has(input:focus) { border-color: var(--c-accent) !important; box-shadow: 0 0 0 3px var(--c-accent-dim) !important; }
+body input[role=listbox] { color: var(--c-text) !important; }
+body ul.options { background: var(--c-raise) !important; border: 1px solid var(--c-line-2) !important; border-radius: 4px !important; }
+body ul.options li.active, body ul.options li:hover { background: var(--c-accent-dim) !important; color: var(--c-text) !important; }
 
-/* ---- Platform chips ---- */
-#platform-chips .wrap {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding-top: 4px;
-}
-#platform-chips label.svelte-1ipelgc,
-#platform-chips label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 20px;
-    border-radius: 999px;
-    border: 2px solid #FF711F;
-    background: transparent;
-    color: #FF711F;
-    font-weight: 600;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-    user-select: none;
-    margin: 0;
-}
-#platform-chips label:has(input:checked) {
-    background: #FF711F;
-    color: #ffffff;
-}
-#platform-chips input[type="checkbox"] {
-    display: none;
-}
-#platform-chips .label-wrap,
-#platform-chips > .form {
-    border: none !important;
-    background: transparent !important;
-    padding: 0 !important;
-    box-shadow: none !important;
-    gap: 0 !important;
-}
+/* ---- Refresh ---- */
+body #refresh-btn { align-self: flex-end; flex: 0 0 var(--ctrl) !important; min-width: var(--ctrl) !important; height: var(--ctrl); padding: 0 !important; background: var(--c-raise) !important; border: 1px solid var(--c-line) !important; border-radius: 4px !important; color: var(--c-dim) !important; font-size: 1rem; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 150ms ease-out, color 150ms ease-out; }
+body #refresh-btn:hover { color: var(--c-text) !important; background: #23272c !important; }
+body #refresh-btn:active { transform: scale(0.94); }
 
-/* ---- Publish button ---- */
-#publish-btn {
-    background: #FF711F !important;
-    border: none !important;
-    border-radius: 0.5rem !important;
-    font-weight: 700 !important;
-    font-size: 1rem !important;
-    color: #ffffff !important;
-    width: 100% !important;
-    padding: 14px !important;
-    transition: background 0.15s !important;
-    margin-top: 12px !important;
-}
-#publish-btn:hover {
-    background: #e05e10 !important;
-}
+/* ---- Tabs de modo: mismo alto y estilo que los chips ---- */
+body #mode-tabs .tab-container[role=tablist] { display: grid !important; grid-template-columns: 1fr 1fr; gap: 6px; height: auto; margin-top: 6px; padding: 0; background: none; border: none !important; }
+body #mode-tabs .tab-container[role=tablist] button { height: var(--ctrl); padding: 0 10px !important; justify-content: center; border: 1px solid var(--c-line) !important; border-radius: 4px !important; background: var(--c-raise) !important; font-family: var(--font-mono); font-size: .74rem !important; text-transform: uppercase; letter-spacing: .06em; color: var(--c-dim) !important; transition: border-color 150ms ease-out, color 150ms ease-out, box-shadow 150ms ease-out; }
+body #mode-tabs .tab-container[role=tablist] button::after { display: none !important; }
+body #mode-tabs .tab-container[role=tablist] button:hover { color: var(--c-text) !important; border-color: var(--c-line-2) !important; }
+body #mode-tabs .tab-container[role=tablist] button.selected { color: var(--c-text) !important; border-color: var(--c-line-2) !important; box-shadow: inset 0 -2px 0 var(--c-accent); }
+/* Mismo alto en las dos pestanas: lo de abajo no salta al cambiar de modo */
+body #mode-tabs .tabitem { min-height: 116px; box-sizing: border-box; padding: 12px 0 0 !important; border: none !important; background: none !important; }
+body .mode-note, body .mode-note * { font-size: .82rem !important; color: var(--c-dim) !important; }
 
-/* ---- Compact tabs ---- */
-.tab-nav button { padding: 6px 18px !important; font-size: 0.85rem !important; }
+/* ---- Chips de plataformas ---- */
+body #platform-chips input[type="checkbox"] { position: absolute; opacity: 0; pointer-events: none; }
+body #platform-chips .wrap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+body #platform-chips label { display: flex; align-items: center; gap: 8px; height: var(--ctrl); box-sizing: border-box; margin: 0; padding: 0 12px; cursor: pointer; user-select: none; border-radius: 4px; border: 1px solid var(--c-line); background: var(--c-raise) !important; color: var(--c-dim) !important; font-size: .82rem; font-weight: 500; transition: border-color 150ms ease-out, color 150ms ease-out; }
+body #platform-chips label::before { content: ""; width: 7px; height: 7px; flex: none; border-radius: 50%; background: #3a3f46; transition: background-color 150ms ease-out, box-shadow 150ms ease-out; }
+body #platform-chips label:hover { border-color: var(--c-line-2); color: var(--c-text) !important; }
+body #platform-chips label:has(input:checked) { color: var(--c-text) !important; border-color: var(--c-line-2); }
+body #platform-chips label:has(input:checked)::before { background: var(--c-accent); box-shadow: 0 0 8px rgba(255,106,26,.8); }
+body #platform-chips label span { margin: 0 !important; }
 
-/* ---- Log area ---- */
-#log-area textarea {
-    font-family: monospace !important;
-    font-size: 0.8rem;
-    background: #191c1e !important;
-    color: #e0e3e5 !important;
-    border-radius: 0.5rem !important;
-}
+/* ---- Boton publicar ---- */
+body #publish-btn { width: 100%; height: var(--ctrl); min-height: var(--ctrl); padding: 0 !important; border: none !important; border-radius: 4px !important; background: var(--c-accent) !important; color: #140700 !important; font-family: var(--font-mono) !important; font-size: .78rem !important; font-weight: 700 !important; text-transform: uppercase; letter-spacing: .1em; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 150ms ease-out; }
+body #publish-btn:hover { background: #ff7d36 !important; }
+body #publish-btn:active { transform: scale(0.98); }
 
-/* ---- Input focus orange ---- */
-input:focus, textarea:focus, select:focus {
-    border-color: #FF711F !important;
-    box-shadow: 0 0 0 2px rgba(255,113,31,0.15) !important;
-}
+/* ---- Log: ocupa todo el alto que queda en la columna ---- */
+body #col-publish > .form:last-child, body #log-area, body #log-area label.container, body #log-area .input-container { flex: 1 1 auto !important; display: flex; flex-direction: column; min-height: 0; }
+body #log-area textarea { flex: 1 1 auto; height: 0 !important; min-height: 120px; max-height: none !important; resize: none; font-family: var(--font-mono) !important; font-size: .76rem !important; line-height: 1.6; background: #08090a !important; color: #b9e8a8 !important; border-color: var(--c-line) !important; }
+"""
 
-/* ---- Tab active state orange ---- */
-.tab-nav button.selected {
-    color: #FF711F !important;
-    border-color: #FF711F !important;
+# Gradio rompe los @media que van en css= (les antepone un prefijo), por eso van en head.
+HEAD = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+@media (max-width: 640px) {
+  body .gradio-container { padding: 16px !important; }
+  body #header-row p { line-height: 1.6; }
 }
-
-/* ---- Input labels - neutral gray ---- */
-label > span:first-child {
-    color: #6c757d !important;
-    font-weight: 500 !important;
-    font-size: 0.8rem !important;
+@media (prefers-reduced-motion: reduce) {
+  body * { transition-duration: 0ms !important; }
 }
+</style>
 """
 
 
@@ -223,9 +182,11 @@ def run_upload(
     now = datetime.now(ART_TZ)
 
     if mode == "publicar":
+        # None = publicar ya en YouTube y TikTok; n8n publica Instagram apenas
+        # termina de preparar el container (~2-5 min)
         ig_dt = now
-        yt_dt = now + timedelta(minutes=15)
-        tt_dt = now + timedelta(minutes=30)
+        yt_dt = None
+        tt_dt = None
     else:
         ig_dt = get_schedule_datetime(pub_date, pub_time)
         yt_dt = get_schedule_datetime(pub_date, pub_time)
@@ -343,7 +304,7 @@ def run_upload(
             "language": language,
             "mode": mode,
             "platforms": platforms,
-            "scheduled_for": yt_dt.isoformat(),
+            "scheduled_for": (yt_dt or now).isoformat(),
             "uploaded_at": now.isoformat(),
             "results": results,
         }
@@ -392,26 +353,26 @@ def build_ui():
 
         gr.HTML(f"""
         <div id="header-row">
-            <h1>Shorts Uploader</h1>
-            <p>{dia_es} {today_str} &nbsp;|&nbsp; {today_preset['label'].split('—')[1].strip()}</p>
+            <h1><span class="brand-mark" aria-hidden="true"></span>Shorts Uploader</h1>
+            <p><span class="hdr-day">{dia_es} {today_str}</span><span class="hdr-sep">|</span><span class="hdr-topic">{today_preset['label'].split('—')[1].strip()}</span></p>
         </div>
         """)
 
         mode_state = gr.State(saved_mode)
 
-        with gr.Row(equal_height=False):
+        with gr.Row(equal_height=False, elem_id="main-row"):
 
             # ---- Columna izquierda: form fields ----
-            with gr.Column(scale=3, min_width=300):
+            with gr.Column(scale=3, min_width=300, elem_id="col-form"):
 
-                with gr.Row():
+                with gr.Row(elem_id="video-row"):
                     video_dropdown = gr.Dropdown(
                         choices=get_video_choices(),
-                        label="",
+                        label="Video",
                         interactive=True,
                         scale=5,
                     )
-                    refresh_btn = gr.Button("↻", size="sm", scale=1, min_width=48)
+                    refresh_btn = gr.Button("↻", size="sm", scale=1, min_width=40, elem_id="refresh-btn")
 
                 title_input = gr.Textbox(label="Titulo", placeholder="Titulo del video")
                 desc_input = gr.Textbox(
@@ -451,13 +412,14 @@ def build_ui():
                     )
 
             # ---- Columna derecha: publicacion ----
-            with gr.Column(scale=2, min_width=200):
+            with gr.Column(scale=2, min_width=200, elem_id="col-publish"):
 
                 gr.HTML('<p class="section-label">Modo de publicacion</p>')
-                with gr.Tabs(selected=saved_mode) as tabs:
+                with gr.Tabs(selected=saved_mode, elem_id="mode-tabs") as tabs:
                     with gr.TabItem("Publicar ahora", id="publicar") as tab_publicar:
                         gr.Markdown(
-                            "<small>Instagram ahora · YouTube en ~15 min · TikTok en ~30 min</small>",
+                            "<small>Publica ya en las tres. Instagram tarda unos minutos (lo publica n8n en skynet).</small>",
+                            elem_classes="mode-note",
                         )
                     with gr.TabItem("Programar", id="programar") as tab_programar:
                         with gr.Row():
@@ -471,7 +433,7 @@ def build_ui():
                                 scale=2,
                                 min_width=90,
                             )
-                        gr.Markdown("<small>Instagram lo programa n8n en skynet.</small>")
+                        gr.Markdown("<small>Instagram lo programa n8n en skynet.</small>", elem_classes="mode-note")
 
                 initial_chips = CHIPS_PUBLICAR if saved_mode == "publicar" else CHIPS_PROGRAMAR
                 platform_chips = gr.CheckboxGroup(
@@ -530,4 +492,4 @@ def build_ui():
 
 if __name__ == "__main__":
     app = build_ui()
-    app.launch(server_name="127.0.0.1", server_port=7860, inbrowser=True, theme=THEME, css=CHIP_CSS)
+    app.launch(server_name="127.0.0.1", server_port=7860, inbrowser=True, theme=THEME, css=UI_CSS, head=HEAD)

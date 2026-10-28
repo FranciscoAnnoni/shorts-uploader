@@ -24,6 +24,54 @@ async def _click_if_visible(page, selector, timeout=3000):
     return False
 
 
+MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+            "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+async def _set_schedule(page, schedule_dt: datetime):
+    # 6. Radio "Programacion"
+    print("[TT] 6. Activando Schedule...")
+    await page.locator('input[name="postSchedule"][value="schedule"]').evaluate(
+        "e => (e.parentElement.querySelector('.Radio__innerCircle') || e).click()"
+    )
+    await _click_if_visible(page, '[role="button"]:has-text("Permitir")', timeout=3000)
+    # dos desplegables: el primero es la fecha, el segundo la hora
+    pickers = page.locator('.Picker__root.schedule-picker')
+    await pickers.nth(1).wait_for(state="visible", timeout=10000)
+
+    # 7. Fecha: cada dia es un boton con aria-label "miercoles, 28 de octubre de 2026"
+    mes = MESES_ES[schedule_dt.month - 1]
+    print(f"[TT] 7. Fecha {schedule_dt:%Y-%m-%d}...")
+    await pickers.nth(0).click()
+    # con la coma adelante: "8 de octubre" tambien es el final de "28 de octubre"
+    day_label = f", {schedule_dt.day} de {mes} de {schedule_dt.year}"
+    day_btn = page.locator(f'button.DatePicker__day[aria-label$="{day_label}"][data-outside="false"]')
+    for _ in range(3):
+        if await day_btn.count():
+            break
+        await page.locator('button.DatePicker__nav[aria-label="Next month"]').first.click(timeout=5000)
+    await day_btn.first.click(timeout=5000)
+
+    # 8. Hora: columnas de botones con aria-label "Hours 21" / "Minutes 30"
+    print(f"[TT] 8. Hora {schedule_dt:%H:%M}...")
+    await pickers.nth(1).click()
+    await page.locator(f'button.TimePicker__item[aria-label="Hours {schedule_dt:%H}"]').click(timeout=5000)
+    await page.locator(f'button.TimePicker__item[aria-label="Minutes {schedule_dt:%M}"]').click(timeout=5000)
+    await page.keyboard.press("Escape")
+    await asyncio.sleep(0.5)
+
+    # 9. Verificar lo que muestran los dos desplegables ("27 oct 2026", "21:30")
+    shown = [t.strip() for t in await pickers.locator('.Picker__value').all_inner_texts()]
+    expected = [f"{schedule_dt.day} {mes[:3]}", str(schedule_dt.year), f"{schedule_dt:%H:%M}"]
+    if len(shown) != 2 or not (
+        shown[0].startswith(expected[0]) and shown[0].endswith(expected[1]) and shown[1] == expected[2]
+    ):
+        shot = SESSIONS_DIR.parent / "debug_tiktok_date.png"
+        await page.screenshot(path=str(shot))
+        raise RuntimeError(f"TikTok muestra {shown} en vez de {expected} (captura: {shot})")
+    print(f"[TT] 9. Fecha y hora OK: {shown}")
+
+
 async def upload(
     video_path: str,
     title: str,
@@ -32,14 +80,12 @@ async def upload(
     schedule_dt: datetime,
     on_confirmed=None,
 ) -> str:
-    now_art = datetime.now(ART_TZ)
-    dt_aware = ART_TZ.localize(schedule_dt) if schedule_dt.tzinfo is None else schedule_dt
-    if dt_aware - now_art < timedelta(minutes=20):
-        raise ValueError("TikTok requiere scheduling al menos 20 minutos en el futuro")
+    if schedule_dt is not None:
+        dt_aware = ART_TZ.localize(schedule_dt) if schedule_dt.tzinfo is None else schedule_dt
+        if dt_aware - datetime.now(ART_TZ) < timedelta(minutes=20):
+            raise ValueError("TikTok requiere scheduling al menos 20 minutos en el futuro")
 
     caption = build_caption(title, description, hashtags)
-    hour_str = f"{schedule_dt.hour:02d}"
-    minute_str = f"{schedule_dt.minute:02d}"
     session_path = str(SESSIONS_DIR / "tiktok")
 
     async with async_playwright() as p:
@@ -146,94 +192,15 @@ async def upload(
         # 5. "Permitir" popup
         await _click_if_visible(page, '[role="button"]:has-text("Permitir")', timeout=3000)
 
-        # 6. Radio "Schedule"
-        print("[TT] 6. Activando Schedule...")
-        await page.evaluate("""
-            const radios = Array.from(document.querySelectorAll('input[name="postSchedule"]'));
-            const last = radios[radios.length - 1];
-            if (last) {
-                const circle = last.parentElement?.querySelector('.Radio__innerCircle');
-                if (circle) circle.click();
-                else last.click();
-            }
-        """)
-        await asyncio.sleep(1)
-
-        # 7. Permitir de nuevo
-        await _click_if_visible(page, '[role="button"]:has-text("Permitir")', timeout=3000)
-
-        # 8. Abrir datepicker
-        print("[TT] 8. Abriendo datepicker...")
-        await page.locator('div.TUXTextInputCore-trailingIconWrapper').first.click(timeout=5000)
-        await asyncio.sleep(1)
-
-        # 9. Hora (scroll picker 24h)
-        print(f"[TT] 9. Hora {hour_str}:{minute_str}...")
-        hour_option = page.locator(
-            f'span.tiktok-timepicker-option-text.tiktok-timepicker-left:has-text("{hour_str}")'
-        ).first
-        await hour_option.click(timeout=5000)
-        await asyncio.sleep(0.5)
-
-        minute_option = page.locator(
-            f'span.tiktok-timepicker-option-text.tiktok-timepicker-right:has-text("{minute_str}")'
-        ).first
-        await minute_option.click(timeout=5000)
-        await asyncio.sleep(0.5)
-
-        # 10. Fecha: el segundo desplegable (el primero es la hora). Por defecto
-        # TikTok trae la fecha de hoy, asi que hay que abrirlo para otro dia.
-        target_date = schedule_dt.strftime("%Y-%m-%d")
-        print(f"[TT] 10. Fecha {target_date}...")
-        await page.keyboard.press("Escape")
-        await asyncio.sleep(0.3)
-        await page.locator('div.TUXTextInputCore-trailingIconWrapper').nth(1).click(timeout=5000)
-        await asyncio.sleep(0.5)
-        target_day = str(schedule_dt.day)
-        for _ in range(3):
-            day_clicked = await page.evaluate(f"""
-                () => {{
-                    const spans = Array.from(document.querySelectorAll('span'));
-                    for (const span of spans) {{
-                        const text = span.innerText?.trim();
-                        if (text !== '{target_day}') continue;
-                        const r = span.getBoundingClientRect();
-                        if (r.height === 0) continue;
-                        // Excluir spans del timepicker
-                        if (span.className && span.className.includes('timepicker')) continue;
-                        span.click();
-                        return true;
-                    }}
-                    return false;
-                }}
-            """)
-            if day_clicked:
-                print(f"[TT] 10. Día {target_day} clickeado")
-                break
-            print(f"[TT] 10. Día {target_day} no encontrado, avanzando mes...")
-            await _click_if_visible(
-                page,
-                '[aria-label="Next month"], [aria-label="Mes siguiente"], '
-                'button.jsx-next-month, span.jsx-next-month',
-                timeout=2000,
+        # 6-10. Cuando publicar. schedule_dt None = publicar ya (radio "Ahora",
+        # que viene marcado por defecto).
+        if schedule_dt is None:
+            print("[TT] 6. Publicar ahora...")
+            await page.locator('input[name="postSchedule"][value="post_now"]').evaluate(
+                "e => e.checked || (e.parentElement.querySelector('.Radio__innerCircle') || e).click()"
             )
-            await asyncio.sleep(0.5)
-        await asyncio.sleep(0.5)
-        shown = await page.evaluate(
-            "() => Array.from(document.querySelectorAll('input')).map(i => i.value).find(v => /^\\d{4}-\\d{2}-\\d{2}$/.test(v)) || ''"
-        )
-        if shown != target_date:
-            shot = SESSIONS_DIR.parent / "debug_tiktok_date.png"
-            await page.screenshot(path=str(shot))
-            raise RuntimeError(f"TikTok muestra fecha {shown!r} en vez de {target_date} (captura: {shot})")
-        print(f"[TT] 10. Fecha OK: {shown}")
-
-        # Cerrar datepicker
-        print("[TT] 10b. Cerrando datepicker...")
-        await page.keyboard.press("Escape")
-        await asyncio.sleep(0.5)
-        await _click_if_visible(page, 'div.jsx-1566941760.main', timeout=2000)
-        await asyncio.sleep(1)
+        else:
+            await _set_schedule(page, schedule_dt)
 
         # 11. Post
         print("[TT] 11. Publicando...")
