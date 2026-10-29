@@ -1,6 +1,6 @@
 # Estado del proyecto — Shorts Uploader
 
-> Última actualización: 2026-10-21
+> Última actualización: 2026-10-28
 
 ---
 
@@ -8,7 +8,7 @@
 
 | Plataforma | Estado | Notas |
 |---|---|---|
-| YouTube | FUNCIONANDO | Browser (Playwright). Programado probado end-to-end el 2026-10-14. |
+| YouTube | FUNCIONANDO | YouTube Data API v3, sin browser. Publicar ya probado end-to-end el 2026-10-28 (299 MB en 15 s); programado probado con `publishAt`. |
 | TikTok | FUNCIONANDO | Browser (Playwright). Programado a otro dia probado el 2026-10-14. |
 | Instagram | FUNCIONANDO | n8n en skynet + Cloudflare R2 (ver README). Publicacion real probada end-to-end el 2026-10-21. |
 
@@ -23,18 +23,20 @@ YouTube y TikTok corren en paralelo desde la app. La app solo marca OK cuando ca
 
 ## YouTube
 
-Flujo completo funcionando:
-- Navega a YouTube Studio
-- Sube el video vía file input (`[name="Filedata"]`)
-- Escribe título y descripción
-- Marca "No para niños"
-- Abre configuración avanzada: idioma (Español) y categoría
-- Agrega tags
-- Navega Siguiente × 3
-- Selecciona "Programado", ingresa fecha y hora
-- Click "Programar"
+Desde el 2026-10-28 sube por la YouTube Data API v3 (`uploaders/youtube.py`), sin browser.
+Antes manejaba YouTube Studio con Playwright y fallaba seguido: timeouts en los botones
+"Siguiente", un cartel de confirmacion que no reconocia (el video se habia publicado igual) y
+cuelgues sin error. Tardaba 1 a 3 min; ahora tarda lo que tarda la subida (~15 s para 300 MB).
 
-**Timezone crítica:** El código convierte 17:00 ART a la timezone del browser. Por defecto asume `Europe/Rome`. Si la Mac está en otra zona horaria, actualizar `browser_tz` en `uploaders/youtube.py`.
+- Subida reanudable en partes de 8 MB, reintenta 5xx.
+- Publicar ya: `privacyStatus=public`. Programar: `private` + `publishAt` en UTC.
+- Titulo, descripcion + hashtags, tags, categoria, idioma, no para ninos.
+- La API no acepta `<` ni `>` en titulo/descripcion: se sacan. Tags hasta 500 caracteres.
+- No tiene la autocertificacion de "idoneidad para anuncios" que marcaba el bot.
+- Token con scope `youtube.upload` solamente (no puede leer, editar ni borrar videos).
+- Cuota: 100 subidas por dia.
+
+Test aislado: `python test_youtube.py VIDEO` (privado), `--public`, `--schedule` (a 30 dias).
 
 ---
 

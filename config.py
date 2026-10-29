@@ -21,6 +21,11 @@ YT_DEFAULT_CATEGORY = "27"
 
 # URLs de upload
 YT_STUDIO_URL = "https://studio.youtube.com"
+
+# YouTube Data API: cliente OAuth (Desktop) de Google Cloud y token guardado
+YT_CLIENT_SECRET_FILE = Path.home() / ".config" / "shorts-uploader" / "youtube-client-secret.json"
+YT_TOKEN_FILE = Path.home() / ".config" / "shorts-uploader" / "youtube-token.json"
+YT_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
 TIKTOK_UPLOAD_URL = "https://www.tiktok.com/creator-center/upload"
 META_BUSINESS_URL = "https://business.facebook.com/latest/home"
 
