@@ -53,7 +53,10 @@ Flujo completo funcionando:
 - Clickea "Publicar"
 - Maneja el modal de copyright (`TUXModal`) si aparece
 
-**Pendiente:** Confirmar que el video aparece como "Programado" en TikTok y se publica a la hora correcta en el primer test real.
+**Por que sigue con browser (decidido el 2026-10-28):** la Content Posting API de TikTok publica todo
+en `SELF_ONLY` (privado) hasta pasar una auditoria, y la auditoria no acepta herramientas para subir a
+la cuenta propia ("A utility tool to help upload contents to the account(s) you or your team manages"
+figura como no aceptable). Tampoco tiene publicacion programada.
 
 ---
 

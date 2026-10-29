@@ -37,13 +37,17 @@ Las tres corren en paralelo cuando se aprieta el botón.
 | Plataforma | Cómo | Quién publica a la hora |
 |---|---|---|
 | YouTube | Data API v3 (`videos.insert`): publica ya (public) o programa (private + `publishAt`) | YouTube |
-| TikTok | Playwright en TikTok Studio, deja el video programado | TikTok |
+| TikTok | Playwright en TikTok Studio, deja el video programado o lo publica ya | TikTok |
 | Instagram | `scp` del video a skynet + `POST /webhook/ig-encolar` a n8n (por Tailscale, header `X-Uploader-Key`) | n8n en skynet |
 
 La API de Instagram no programa Reels y el container que arma vence a las 24 h, así que n8n
 (proyecto `~/Proyectos/ig-scheduler`) espera hasta 22 h antes, sube el video a Cloudflare R2
 (bucket privado, link firmado de 2 h), crea el container, espera a que Instagram lo procese y lo
 borra de R2. Si falla, reintenta cada 10 min. A la hora llama `media_publish` y avisa por Telegram.
+
+TikTok queda por la web a proposito: la Content Posting API publica todo privado (`SELF_ONLY`)
+hasta pasar una auditoria, la auditoria rechaza herramientas para subir a la cuenta propia
+("not limited to internal groups/private use") y la API no programa.
 
 Secretos fuera del repo: `.env` (token de Instagram), `~/.config/shorts-uploader/ig-uploader-key`
 (clave del webhook), `~/.config/shorts-uploader/r2.env` (claves de R2) y
@@ -76,5 +80,4 @@ sessions/                       # cookies de login por plataforma (no commiteado
 ## Próximos pasos
 
 - [ ] Modal para elegir entre programar o publicar inmediatamente: al presionar el botón principal, aparece un modal con dos opciones — "Programar" (abre el selector de fecha/hora) y "Publicar ahora" (dispara los tres uploads en paralelo con un timeout de 3 minutos para que las plataformas procesen el video antes de finalizarlo)
-- [ ] TikTok Developer API: reemplazar la automatización de browser por la API oficial una vez aprobada
 - [ ] Soporte multi-video: subir más de un video en una misma sesión
