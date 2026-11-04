@@ -35,10 +35,61 @@ async def _set_schedule(page, schedule_dt: datetime):
         "e => (e.parentElement.querySelector('.Radio__innerCircle') || e).click()"
     )
     await _click_if_visible(page, '[role="button"]:has-text("Permitir")', timeout=3000)
-    # dos desplegables: el primero es la fecha, el segundo la hora
+    # TikTok alterna entre dos interfaces: Picker__root (nueva) y TUXTextInput (vieja)
     pickers = page.locator('.Picker__root.schedule-picker')
-    await pickers.nth(1).wait_for(state="visible", timeout=10000)
+    tux = page.locator('div.TUXTextInputCore-trailingIconWrapper')
+    await pickers.or_(tux).first.wait_for(state="visible", timeout=10000)
+    if await pickers.count():
+        await _set_schedule_picker(page, pickers, schedule_dt)
+    else:
+        await _set_schedule_tux(page, tux, schedule_dt)
 
+
+async def _set_schedule_tux(page, tux, schedule_dt: datetime):
+    # dos inputs: el primero la hora ("14:30"), el segundo la fecha ("2026-11-04")
+    print(f"[TT] 7. (TUX) Hora {schedule_dt:%H:%M}...")
+    await tux.nth(0).click()
+    await page.locator(
+        f'span.tiktok-timepicker-option-text.tiktok-timepicker-left:text-is("{schedule_dt:%H}")'
+    ).first.click(timeout=5000)
+    await asyncio.sleep(0.5)
+    await page.locator(
+        f'span.tiktok-timepicker-option-text.tiktok-timepicker-right:text-is("{schedule_dt:%M}")'
+    ).first.click(timeout=5000)
+    await asyncio.sleep(0.5)
+    await page.keyboard.press("Escape")
+    await asyncio.sleep(0.5)
+
+    print(f"[TT] 8. (TUX) Fecha {schedule_dt:%Y-%m-%d}...")
+    await tux.nth(1).click()
+    cal = page.locator('.calendar-wrapper')
+    await cal.wait_for(state="visible", timeout=5000)
+    mes = MESES_ES[schedule_dt.month - 1]
+    for _ in range(3):
+        title = (await cal.locator('.month-title').inner_text()).strip().lower()
+        year = (await cal.locator('.year-title').inner_text()).strip()
+        if title == mes and year == str(schedule_dt.year):
+            break
+        await cal.locator('.month-header-wrapper .arrow').last.click(timeout=5000)
+        await asyncio.sleep(0.5)
+    await cal.locator(f'span.day.valid:text-is("{schedule_dt.day}")').first.click(timeout=5000)
+    await asyncio.sleep(0.5)
+    await page.keyboard.press("Escape")
+    await asyncio.sleep(0.5)
+
+    # 9. Verificar los valores de los inputs
+    inputs = page.locator('input.TUXTextInputCore-input')
+    shown = [await inputs.nth(0).input_value(), await inputs.nth(1).input_value()]
+    expected = [f"{schedule_dt:%H:%M}", f"{schedule_dt:%Y-%m-%d}"]
+    if shown != expected:
+        shot = SESSIONS_DIR.parent / "debug_tiktok_date.png"
+        await page.screenshot(path=str(shot))
+        raise RuntimeError(f"TikTok muestra {shown} en vez de {expected} (captura: {shot})")
+    print(f"[TT] 9. Fecha y hora OK: {shown}")
+
+
+async def _set_schedule_picker(page, pickers, schedule_dt: datetime):
+    # dos desplegables: el primero es la fecha, el segundo la hora
     # 7. Fecha: cada dia es un boton con aria-label "miercoles, 28 de octubre de 2026"
     mes = MESES_ES[schedule_dt.month - 1]
     print(f"[TT] 7. Fecha {schedule_dt:%Y-%m-%d}...")
