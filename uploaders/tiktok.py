@@ -196,12 +196,20 @@ async def upload(
         print("[TT] 1. Navegando a TikTok Creator Center...")
         await page.goto(TIKTOK_UPLOAD_URL, wait_until="domcontentloaded", timeout=60000)
         await inject_logger()
-        # Esperar a que la página cargue completamente (maneja redirect de login)
         print("[TT] 1b. Esperando que cargue el form de upload...")
-        try:
-            await page.wait_for_selector('input[type="file"]', state="attached", timeout=30000)
-        except Exception:
-            print("[TT] 1b. Timeout esperando el form — puede ser redirect de login")
+        for _ in range(30):
+            if "/login" in page.url or await page.locator('input[type="file"]').count():
+                break
+            await asyncio.sleep(1)
+        if "/login" in page.url:
+            # sesion vencida: el browser queda abierto en el login para entrar a mano;
+            # al terminar TikTok vuelve solo a la pagina de subida
+            print("[TT] 1b. Sesion de TikTok vencida. Logueate en la ventana de Chrome (tenes 5 min)...")
+            try:
+                await page.wait_for_selector('input[type="file"]', state="attached", timeout=300000)
+            except Exception:
+                raise RuntimeError("Sesion de TikTok vencida y no se completo el login en 5 min")
+            print("[TT] 1b. Login OK, sigo con la subida.")
 
         # 2. Subir archivo
         print("[TT] 2. Subiendo archivo...")
